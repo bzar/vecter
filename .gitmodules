@@ -1,0 +1,6 @@
+[submodule "lib/libfixmatrix"]
+	path = lib/libfixmatrix
+	url = https://github.com/PetteriAimonen/libfixmatrix.git
+[submodule "lib/chck"]
+	path = lib/chck
+	url = https://github.com/Cloudef/chck.git
