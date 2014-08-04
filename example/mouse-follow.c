@@ -4,24 +4,6 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 
-
-void collisionCallback(const vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId, v2d* destination)
-{
-  v2d const* base = vecterSegmentGetBase(world, segmentId);
-  v2d const* tip = vecterSegmentGetTip(world, segmentId);
-  v2d const* collisionPoint = vecterActorGetPosition(world, actorId);
-
-  v2d delta;
-  v2d_sub(&delta, destination, collisionPoint);
-
-  v2d newDelta;
-  v2d_sub(&newDelta, tip, base);
-  v2d_normalize(&newDelta, &newDelta);
-  v2d_mul_s(&newDelta, &newDelta, v2d_dot(&newDelta, &delta));
-
-  v2d_add(destination, collisionPoint, &newDelta);
-}
-
 int main(int argc, char** argv)
 {
   (void) argc;
@@ -41,15 +23,16 @@ int main(int argc, char** argv)
   int i;
   for(i = 1; i < num_vertices; ++i)
   {
-    v2d base = {fix16_from_int(vertices[i-1].x), fix16_from_int(vertices[i-1].y)};
-    v2d tip = {fix16_from_int(vertices[i].x), fix16_from_int(vertices[i].y)};
+    /* Invert segment directions to compensate SDL and vecter having inverted y-axes */
+    v2d base = {fix16_from_int(vertices[i].x), fix16_from_int(vertices[i].y)};
+    v2d tip = {fix16_from_int(vertices[i-1].x), fix16_from_int(vertices[i-1].y)};
     vecterSegmentAdd(world, &base, &tip);
   }
 
   vecterActorId actorId = vecterActorAdd(world);
   v2d startPosition = {F16(400), F16(240)};
   vecterActorPosition(world, actorId, &startPosition);
-  vecterActorCollisionCallback(world, actorId, collisionCallback);
+  vecterActorCollisionCallback(world, actorId, vecterCollisionProjection);
 
   bool running = true;
   while(running)
@@ -64,8 +47,8 @@ int main(int argc, char** argv)
     }
 
     int mousex, mousey;
-    SDL_GetMouseState(&mousex, &mousey);
-
+    Uint32 buttons = SDL_GetMouseState(&mousex, &mousey);
+    if(buttons & SDL_BUTTON_LEFT)
     {
       const v2d* actorPos = vecterActorGetPosition(world, actorId);
       v2d mousePos = {fix16_from_int(mousex), fix16_from_int(mousey)};
