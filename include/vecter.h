@@ -9,8 +9,7 @@ typedef struct _vecterWorld vecterWorld;
 typedef size_t vecterSegmentId;
 typedef size_t vecterActorId;
 
-typedef void (*vecterCollisionCallback)(const vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId,
-                                        v2d* destination);
+typedef void (*vecterCollisionCallback)(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId);
 
 vecterWorld* vecterWorldNew();
 void vecterWorldFree(vecterWorld* world);
@@ -32,5 +31,11 @@ const v2d* vecterActorGetVelocity(const vecterWorld* world, vecterActorId actorI
 void vecterActorUserData(vecterWorld* world, vecterActorId actorId, void* userData);
 void* vecterActorGetUserData(const vecterWorld* world, vecterActorId actorId);
 void vecterActorCollisionCallback(vecterWorld* world, vecterActorId actorId, vecterCollisionCallback collisionCallback);
+
+// Provided collision responses
+void vecterCollisionStop(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId);
+void vecterCollisionSlide(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId);
+void vecterCollisionProjection(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId);
+void vecterCollisionReflection(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId);
 
 #endif

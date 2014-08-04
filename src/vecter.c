@@ -29,6 +29,7 @@ static vecterActor* getActor(const vecterWorld* world, vecterActorId actorId);
 static void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, fix16_t delta);
 static bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint);
 static fix16_t v2d_cross(const v2d* a, const v2d* b);
+static void v2d_projection(v2d* dest, const v2d* a, const v2d* b);
 
 vecterWorld* vecterWorldNew()
 {
@@ -160,6 +161,60 @@ void vecterActorCollisionCallback(vecterWorld* world, vecterActorId actorId, vec
   getActor(world, actorId)->collisionCallback = collisionCallback;
 }
 
+void vecterCollisionStop(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId)
+{
+  (void) segmentId;
+  v2d newVelocity = {0, 0};
+  vecterActorVelocity(world, actorId, &newVelocity);
+}
+
+void vecterCollisionSlide(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId)
+{
+  v2d const* base = vecterSegmentGetBase(world, segmentId);
+  v2d const* tip = vecterSegmentGetTip(world, segmentId);
+  v2d const* velocity = vecterActorGetVelocity(world, actorId);
+
+  v2d offset = { fix16_sub(tip->y, base->y), -fix16_sub(tip->x, base->x) };
+  v2d_mul_s(&offset, &offset, -1);
+  v2d newVelocity;
+  v2d_sub(&newVelocity, tip, base);
+  v2d_normalize(&newVelocity, &newVelocity);
+  fix16_t dot = v2d_dot(&newVelocity, velocity);
+  fix16_t sign = dot > 0 ? 1 : dot < 0 ? -1 : 0;
+  v2d_mul_s(&newVelocity, &newVelocity, sign * v2d_norm(velocity));
+  v2d_add(&newVelocity, &newVelocity, &offset);
+  vecterActorVelocity(world, actorId, &newVelocity);
+}
+
+void vecterCollisionProjection(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId)
+{
+  v2d const* base = vecterSegmentGetBase(world, segmentId);
+  v2d const* tip = vecterSegmentGetTip(world, segmentId);
+  v2d const* velocity = vecterActorGetVelocity(world, actorId);
+
+  v2d offset = { fix16_sub(tip->y, base->y), -fix16_sub(tip->x, base->x) };
+  v2d_mul_s(&offset, &offset, -1);
+  v2d newVelocity;
+  v2d_sub(&newVelocity, tip, base);
+  v2d_projection(&newVelocity, velocity, &newVelocity);
+  v2d_add(&newVelocity, &newVelocity, &offset);
+  vecterActorVelocity(world, actorId, &newVelocity);
+}
+
+void vecterCollisionReflection(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId)
+{
+  v2d const* base = vecterSegmentGetBase(world, segmentId);
+  v2d const* tip = vecterSegmentGetTip(world, segmentId);
+  v2d const* velocity = vecterActorGetVelocity(world, actorId);
+
+  v2d normal = { fix16_sub(tip->y, base->y), -fix16_sub(tip->x, base->x) };
+  v2d_normalize(&normal, &normal);
+  v2d_mul_s(&normal, &normal, -2 * v2d_dot(&normal, velocity));
+  v2d newVelocity;
+  v2d_add(&newVelocity, &normal, velocity);
+  vecterActorVelocity(world, actorId, &newVelocity);
+}
+
 
 /* PRIVATE */
 
@@ -179,16 +234,19 @@ vecterActor* getActor(const vecterWorld* world, vecterActorId actorId)
 
 void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, fix16_t delta)
 {
-  (void) world;
-
-  v2d positionDelta, destination;
-  v2d_mul_s(&positionDelta, &actor->velocity, delta);
-  v2d_add(&destination, &actor->position, &positionDelta);
-
-  bool repeat = false;
-  int repeats = 0;
-  do
+  int repeat = 0;
+  fix16_t deltaLeft = delta;
+  while(deltaLeft > 0 && repeat++ < 10)
   {
+    v2d positionDelta, destination;
+    v2d_mul_s(&positionDelta, &actor->velocity, deltaLeft);
+
+    if(positionDelta.x == 0 && positionDelta.y == 0)
+    {
+      break;
+    }
+    v2d_add(&destination, &actor->position, &positionDelta);
+
     bool collided = false;
     fix16_t distance = 0;
     v2d collisionPoint;
@@ -209,6 +267,7 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
       {
         v2d collisionDelta;
         v2d_sub(&collisionDelta, &cp, &actor->position);
+
         fix16_t d = v2d_norm(&collisionDelta);
         if(!collided || d < distance)
         {
@@ -220,27 +279,29 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
       }
     }
 
-    if(collided)
+    if(!collided)
     {
-      //printf("Collision point: (%i, %i)\n", collisionPoint.x, collisionPoint.y);
+      actor->position = destination;
+      deltaLeft = 0;
+    }
+    else if(!actor->collisionCallback)
+    {
       actor->position = collisionPoint;
-      if(actor->collisionCallback)
-      {
-        v2d oldDestination = destination;
-        actor->collisionCallback(world, actorId, segmentId, &destination);
-        repeat = oldDestination.x != destination.x || oldDestination.y != destination.y;
-        v2d_sub(&positionDelta, &destination, &collisionPoint);
-      }
+      deltaLeft = 0;
     }
     else
     {
-      actor->position = destination;
-      repeat = false;
-      //printf("No collision\n");
-    }
+      actor->position = collisionPoint;
 
-    repeats += 1;
-  } while(repeat && repeats < 10);
+      v2d oldVelocity = actor->velocity;
+      actor->collisionCallback(world, actorId, segmentId);
+      bool velocityChanged = oldVelocity.x != actor->velocity.x || oldVelocity.y != actor->velocity.y;
+      fix16_t totalDistance = v2d_norm(&positionDelta);
+      deltaLeft = velocityChanged
+          ? fix16_sub(deltaLeft, fix16_mul(deltaLeft, fix16_div(distance, totalDistance)))
+          : 0;
+    }
+  }
 }
 
 bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint)
@@ -271,4 +332,12 @@ bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, co
 fix16_t v2d_cross(const v2d* a, const v2d* b)
 {
   return fix16_sub(fix16_mul(a->x, b->y), fix16_mul(a->y, b->x));
+}
+
+void v2d_projection(v2d* dest, const v2d* a, const v2d* b)
+{
+  v2d result;
+  v2d_normalize(&result, b);
+  v2d_mul_s(&result, &result, v2d_dot(a, &result));
+  *dest = result;
 }
