@@ -73,12 +73,20 @@ void vecterSegmentRemove(vecterWorld* world, vecterSegmentId segmentId)
   chckPoolRemove(world->segments, segmentId);
 }
 
+void vecterSegmentBase(vecterWorld* world, vecterSegmentId segmentId, const v2d* base)
+{
+  getSegment(world, segmentId)->base = *base;
+}
 
 const v2d* vecterSegmentGetBase(const vecterWorld* world, vecterSegmentId segmentId)
 {
   return &(getSegment(world, segmentId)->base);
 }
 
+void vecterSegmentTip(vecterWorld* world, vecterSegmentId segmentId, const v2d* tip)
+{
+  getSegment(world, segmentId)->tip = *tip;
+}
 
 const v2d* vecterSegmentGetTip(const vecterWorld* world, vecterSegmentId segmentId)
 {
@@ -341,3 +349,4 @@ void v2d_projection(v2d* dest, const v2d* a, const v2d* b)
   v2d_mul_s(&result, &result, v2d_dot(a, &result));
   *dest = result;
 }
+

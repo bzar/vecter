@@ -17,7 +17,9 @@ void vecterWorldUpdate(vecterWorld* world, fix16_t delta);
 
 vecterSegmentId vecterSegmentAdd(vecterWorld* world, const v2d* base, const v2d* tip);
 void vecterSegmentRemove(vecterWorld* world, vecterSegmentId segmentId);
+void vecterSegmentBase(vecterWorld* world, vecterSegmentId segmentId, const v2d* base);
 const v2d* vecterSegmentGetBase(const vecterWorld* world, vecterSegmentId segmentId);
+void vecterSegmentTip(vecterWorld* world, vecterSegmentId segmentId, const v2d* tip);
 const v2d* vecterSegmentGetTip(const vecterWorld* world, vecterSegmentId segmentId);
 void vecterSegmentUserData(vecterWorld* world, vecterSegmentId segmentId, void* userData);
 void* vecterSegmentGetUserData(const vecterWorld* world, vecterSegmentId segmentId);
