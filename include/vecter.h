@@ -21,6 +21,8 @@ void vecterSegmentBase(vecterWorld* world, vecterSegmentId segmentId, const v2d*
 const v2d* vecterSegmentGetBase(const vecterWorld* world, vecterSegmentId segmentId);
 void vecterSegmentTip(vecterWorld* world, vecterSegmentId segmentId, const v2d* tip);
 const v2d* vecterSegmentGetTip(const vecterWorld* world, vecterSegmentId segmentId);
+void vecterSegmentVelocity(vecterWorld* world, vecterSegmentId segmentId, const v2d* velocity);
+const v2d* vecterSegmentGetVelocity(const vecterWorld* world, vecterSegmentId segmentId);
 void vecterSegmentUserData(vecterWorld* world, vecterSegmentId segmentId, void* userData);
 void* vecterSegmentGetUserData(const vecterWorld* world, vecterSegmentId segmentId);
 

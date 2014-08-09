@@ -13,6 +13,7 @@ typedef struct vecterSegment
 {
   v2d base;
   v2d tip;
+  v2d velocity;
   void* userData;
 } vecterSegment;
 
@@ -30,6 +31,8 @@ static void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId ac
 static bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint);
 static fix16_t v2d_cross(const v2d* a, const v2d* b);
 static void v2d_projection(v2d* dest, const v2d* a, const v2d* b);
+static fix16_t v2d_scaling_coefficient(const v2d* a, const v2d* b, const v2d* p);
+static fix16_t v2d_norm_sq(const v2d* v);
 
 vecterWorld* vecterWorldNew()
 {
@@ -61,7 +64,8 @@ void vecterWorldUpdate(vecterWorld* world, fix16_t delta)
 
 vecterSegmentId vecterSegmentAdd(vecterWorld* world, const v2d* base, const v2d* tip)
 {
-  vecterSegment segment = {*base, *tip, NULL};
+  v2d velocity = {0, 0};
+  vecterSegment segment = {*base, *tip, velocity, NULL};
   chckPoolIndex index;
   assert(chckPoolAdd(world->segments, &segment, &index) && "VECTER: Could not add segment");
   return index;
@@ -93,6 +97,16 @@ const v2d* vecterSegmentGetTip(const vecterWorld* world, vecterSegmentId segment
   return &(getSegment(world, segmentId)->tip);
 }
 
+void vecterSegmentVelocity(vecterWorld* world, vecterSegmentId segmentId, const v2d* velocity)
+{
+  getSegment(world, segmentId)->velocity = *velocity;
+}
+
+
+const v2d* vecterSegmentGetVelocity(const vecterWorld* world, vecterSegmentId segmentId)
+{
+  return &(getSegment(world, segmentId)->velocity);
+}
 
 void vecterSegmentUserData(vecterWorld* world, vecterSegmentId segmentId, void* userData)
 {
@@ -242,46 +256,60 @@ vecterActor* getActor(const vecterWorld* world, vecterActorId actorId)
 
 void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, fix16_t delta)
 {
-  int repeat = 0;
   fix16_t deltaLeft = delta;
-  while(deltaLeft > 0 && repeat++ < 10)
+  v2d pushVelocity = {0, 0};
+  while(deltaLeft > 0)
   {
+    fix16_t passed = fix16_sub(delta, deltaLeft);
     v2d positionDelta, destination;
-    v2d_mul_s(&positionDelta, &actor->velocity, deltaLeft);
-
-    if(positionDelta.x == 0 && positionDelta.y == 0)
-    {
-      break;
-    }
+    v2d_add(&positionDelta, &actor->velocity, &pushVelocity);
+    v2d_mul_s(&positionDelta, &positionDelta, deltaLeft);
     v2d_add(&destination, &actor->position, &positionDelta);
 
     bool collided = false;
-    fix16_t distance = 0;
+    fix16_t minDt = 0;
     v2d collisionPoint;
     vecterSegmentId segmentId;
+    pushVelocity.x = 0;
+    pushVelocity.y = 0;
 
-    /* TODO: Query segment tree to find potential collisions instead of iterating all */
     chckPoolIndex iter = 0;
     vecterSegment* segment;
     while((segment = chckPoolIter(world->segments, &iter)))
     {
+      v2d segmentMoved, segmentBase, segmentTip;
+      v2d_mul_s(&segmentMoved, &segment->velocity, passed);
+      v2d_add(&segmentBase, &segment->base, &segmentMoved);
+      v2d_add(&segmentTip, &segment->tip, &segmentMoved);
+
       v2d segmentDelta;
-      v2d_sub(&segmentDelta, &segment->tip, &segment->base);
-      if(v2d_cross(&segmentDelta, &positionDelta) > 0)
+      v2d_sub(&segmentDelta, &segmentTip, &segmentBase);
+
+      v2d relativePositionDelta, relativeDestination;
+      v2d_mul_s(&relativePositionDelta, &segment->velocity, deltaLeft);
+      v2d_add(&relativePositionDelta, &relativePositionDelta, &positionDelta);
+
+      /* No relative movement, cannot collide */
+      if(relativePositionDelta.x == 0 && relativePositionDelta.y == 0)
         continue;
 
-      v2d cp;
-      if(segmentIntersection(&actor->position, &destination, &segment->base, &segment->tip, &cp))
-      {
-        v2d collisionDelta;
-        v2d_sub(&collisionDelta, &cp, &actor->position);
+      /* Relative movement not against the blocking side */
+      if(v2d_cross(&segmentDelta, &relativePositionDelta) > 0)
+        continue;
 
-        fix16_t d = v2d_norm(&collisionDelta);
-        if(!collided || d < distance)
+      v2d_add(&relativeDestination, &actor->position, &relativePositionDelta);
+
+      v2d cp;
+      if(segmentIntersection(&actor->position, &relativeDestination, &segmentBase, &segmentTip, &cp))
+      {
+        fix16_t dt = fix16_mul(deltaLeft, v2d_scaling_coefficient(&actor->position, &relativeDestination, &cp));
+        if(!collided || dt < minDt)
         {
-          distance = d;
-          collisionPoint = cp;
+          minDt = dt;
+          v2d_mul_s(&collisionPoint, &segment->velocity, dt);
+          v2d_add(&collisionPoint, &collisionPoint, &cp);
           segmentId = iter - 1;
+          pushVelocity = segment->velocity;
           collided = true;
         }
       }
@@ -303,11 +331,8 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
 
       v2d oldVelocity = actor->velocity;
       actor->collisionCallback(world, actorId, segmentId);
-      bool velocityChanged = oldVelocity.x != actor->velocity.x || oldVelocity.y != actor->velocity.y;
-      fix16_t totalDistance = v2d_norm(&positionDelta);
-      deltaLeft = velocityChanged
-          ? fix16_sub(deltaLeft, fix16_mul(deltaLeft, fix16_div(distance, totalDistance)))
-          : 0;
+      bool stopped = oldVelocity.x == actor->velocity.x && oldVelocity.y == actor->velocity.y && pushVelocity.x == 0 && pushVelocity.y == 0;
+      deltaLeft = stopped ? 0 : fix16_sub(deltaLeft, minDt);
     }
   }
 }
@@ -350,3 +375,23 @@ void v2d_projection(v2d* dest, const v2d* a, const v2d* b)
   *dest = result;
 }
 
+fix16_t v2d_scaling_coefficient(const v2d* a, const v2d* b, const v2d* p)
+{
+  if(a->x != b->x)
+  {
+    return fix16_div(fix16_sub(p->x, a->x), fix16_sub(b->x, a->x));
+  }
+  else if(a->y != b->y)
+  {
+    return fix16_div(fix16_sub(p->y, a->y), fix16_sub(b->y, a->y));
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+fix16_t v2d_norm_sq(const v2d* v)
+{
+  return fix16_add(fix16_mul(v->x, v->x), fix16_mul(v->y, v->y));
+}
