@@ -20,3 +20,7 @@ add_test(sharp-angle sharp-angle)
 add_executable(collision-order collision-order.c)
 target_link_libraries(collision-order vecter)
 add_test(collision-order collision-order)
+
+add_executable(wall-push wall-push.c)
+target_link_libraries(wall-push vecter)
+add_test(wall-push wall-push)

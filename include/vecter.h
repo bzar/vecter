@@ -25,7 +25,6 @@ void vecterSegmentVelocity(vecterWorld* world, vecterSegmentId segmentId, const 
 const v2d* vecterSegmentGetVelocity(const vecterWorld* world, vecterSegmentId segmentId);
 void vecterSegmentUserData(vecterWorld* world, vecterSegmentId segmentId, void* userData);
 void* vecterSegmentGetUserData(const vecterWorld* world, vecterSegmentId segmentId);
-
 vecterActorId vecterActorAdd(vecterWorld* world);
 void vecterActorRemove(vecterWorld* world, vecterActorId actorId);
 void vecterActorPosition(vecterWorld* world, vecterActorId actorId, const v2d* position);
