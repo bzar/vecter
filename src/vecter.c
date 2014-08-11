@@ -29,11 +29,10 @@ static vecterSegment* getSegment(const vecterWorld* world, vecterSegmentId segme
 static vecterActor* getActor(const vecterWorld* world, vecterActorId actorId);
 static void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, fix16_t delta);
 static void updateSegment(vecterWorld* world, vecterSegment* segment, vecterSegmentId segmentId, fix16_t delta);
-static bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint);
+static bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint, fix16_t* dt);
 static fix16_t v2d_cross(const v2d* a, const v2d* b);
 static void v2d_projection(v2d* dest, const v2d* a, const v2d* b);
 static fix16_t v2d_scaling_coefficient(const v2d* a, const v2d* b, const v2d* p);
-static fix16_t v2d_norm_sq(const v2d* v);
 
 vecterWorld* vecterWorldNew()
 {
@@ -230,6 +229,7 @@ void vecterCollisionProjection(vecterWorld* world, vecterActorId actorId, vecter
   v2d_projection(&newVelocity, velocity, &newVelocity);
   v2d_add(&newVelocity, &newVelocity, &offset);
   vecterActorVelocity(world, actorId, &newVelocity);
+  //printf("New velocity: %i, %i\n", fix16_to_int(newVelocity.x), fix16_to_int(newVelocity.y));
 }
 
 void vecterCollisionReflection(vecterWorld* world, vecterActorId actorId, vecterSegmentId segmentId)
@@ -263,12 +263,19 @@ vecterActor* getActor(const vecterWorld* world, vecterActorId actorId)
   return actor;
 }
 
+void printv2d(const char* name, v2d v)
+{
+  printf("%s: (%f, %f)\n", name, fix16_to_float(v.x), fix16_to_float(v.y));
+}
+
 void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, fix16_t delta)
 {
   fix16_t deltaLeft = delta;
   v2d pushVelocity = {0, 0};
+  int count = 0;
   while(deltaLeft > 0)
   {
+    count++;
     v2d pushedVelocity = actor->velocity;
     if(pushVelocity.x != 0 || pushVelocity.y != 0)
     {
@@ -304,8 +311,8 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
       v2d_sub(&segmentDelta, &segmentTip, &segmentBase);
 
       v2d relativePositionDelta, relativeDestination;
-      v2d_mul_s(&relativePositionDelta, &segment->velocity, -deltaLeft);
-      v2d_add(&relativePositionDelta, &relativePositionDelta, &positionDelta);
+      v2d_mul_s(&relativePositionDelta, &segment->velocity, deltaLeft);
+      v2d_sub(&relativePositionDelta, &positionDelta, &relativePositionDelta);
 
       /* No relative movement, cannot collide */
       if(relativePositionDelta.x == 0 && relativePositionDelta.y == 0)
@@ -317,12 +324,46 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
 
       v2d_add(&relativeDestination, &actor->position, &relativePositionDelta);
 
+      /* Bounding box test */
+      v2d aMin = {
+        fix16_min(actor->position.x, relativeDestination.x),
+        fix16_min(actor->position.y, relativeDestination.y)
+      };
+      v2d aMax = {
+        fix16_max(actor->position.x, relativeDestination.x),
+        fix16_max(actor->position.y, relativeDestination.y)
+      };
+      v2d bMin = {
+        fix16_min(segment->base.x, segment->tip.x),
+        fix16_min(segment->base.y, segment->tip.y)
+      };
+      v2d bMax = {
+        fix16_max(segment->base.x, segment->tip.x),
+        fix16_max(segment->base.y, segment->tip.y)
+      };
+
+      if(aMin.x > bMax.x || aMin.y > bMax.y || aMax.x < bMin.x || aMax.y < bMin.y)
+        continue;
+
       v2d cp;
-      if(segmentIntersection(&actor->position, &relativeDestination, &segmentBase, &segmentTip, &cp))
+      fix16_t dtRelative;
+      if(segmentIntersection(&actor->position, &relativeDestination, &segmentBase, &segmentTip, &cp, &dtRelative))
       {
-        fix16_t dt = fix16_mul(deltaLeft, v2d_scaling_coefficient(&actor->position, &relativeDestination, &cp));
+        fix16_t dt = fix16_mul(deltaLeft, dtRelative);
         if(!collided || dt < minDt)
         {
+          if(fix16_abs(fix16_sub(cp.x, actor->position.x)) > fix16_abs(positionDelta.x))
+          {
+            printv2d("position", actor->position);
+            printv2d("segmentBase", segment->base);
+            printv2d("segmentTip", segment->tip);
+            printv2d("velocity", actor->velocity);
+            printv2d("relativePositionDelta", relativePositionDelta);
+            printv2d("relativeDestination", relativeDestination);
+            printf("dt: %f\n", fix16_to_float(dt));
+            printf("dtRelative: %f\n", fix16_to_float(dtRelative));
+            printv2d("cp", cp);
+          }
           minDt = dt;
           v2d_mul_s(&collisionPoint, &segment->velocity, dt);
           v2d_add(&collisionPoint, &collisionPoint, &cp);
@@ -346,6 +387,7 @@ void updateActor(vecterWorld* world, vecterActor* actor, vecterActorId actorId, 
     }
     else
     {
+     // printf("New position: %i, %i\n", fix16_to_int(collisionPoint.x), fix16_to_int(collisionPoint.y));
       actor->position = collisionPoint;
 
       v2d oldVelocity = actor->velocity;
@@ -366,7 +408,7 @@ void updateSegment(vecterWorld* world, vecterSegment* segment, vecterSegmentId s
   v2d_add(&segment->tip, &segment->tip, &positionDelta);
 }
 
-bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint)
+bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, const v2d* bTip, v2d* intersectionPoint, fix16_t* dt)
 {
   v2d aDelta, bDelta;
   v2d_sub(&aDelta, aTip, aBase);
@@ -384,6 +426,7 @@ bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, co
     {
       v2d_mul_s(intersectionPoint, &bDelta, u);
       v2d_add(intersectionPoint, intersectionPoint, bBase);
+      *dt = t;
       return true;
     }
   }
@@ -393,14 +436,23 @@ bool segmentIntersection(const v2d* aBase, const v2d* aTip, const v2d* bBase, co
 
 fix16_t v2d_cross(const v2d* a, const v2d* b)
 {
-  return fix16_sub(fix16_mul(a->x, b->y), fix16_mul(a->y, b->x));
+  fix16_t axby = fix16_mul(a->x, b->y);
+  fix16_t aybx = fix16_mul(a->y, b->x);
+  fix16_t result = fix16_sub(axby, aybx);
+  if(axby == fix16_overflow || aybx == fix16_overflow || result == fix16_overflow)
+  {
+    printf("OVERFLOW: (%f, %f) X (%f, %f)\n", fix16_to_float(a->x), fix16_to_float(a->y), fix16_to_float(b->x), fix16_to_float(b->y));
+  }
+  return result;
 }
 
 void v2d_projection(v2d* dest, const v2d* a, const v2d* b)
 {
   v2d result;
   v2d_normalize(&result, b);
-  v2d_mul_s(&result, &result, v2d_dot(a, &result));
+  fix16_t dot = v2d_dot(a, &result);
+  assert(dot != fix16_overflow);
+  v2d_mul_s(&result, &result, dot);
   *dest = result;
 }
 
@@ -418,9 +470,4 @@ fix16_t v2d_scaling_coefficient(const v2d* a, const v2d* b, const v2d* p)
   {
     return 0;
   }
-}
-
-fix16_t v2d_norm_sq(const v2d* v)
-{
-  return fix16_add(fix16_mul(v->x, v->x), fix16_mul(v->y, v->y));
 }
